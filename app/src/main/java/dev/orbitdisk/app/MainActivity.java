@@ -17,7 +17,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MainActivity extends Activity {
     private final int BG=0xff101421, CARD=0xff1a2030, TEXT=0xfff4f5fb, MUTED=0xff9ba4ba, GREEN=0xffa5f0cf;
-    private final ExecutorService worker=Executors.newSingleThreadExecutor();
+    private static final ExecutorService worker=Executors.newSingleThreadExecutor();
+    private int generation;
+    private long scanTime;
+    private boolean historical;
+    private File snapshotFile;
+    private SharedPreferences navigation;
     private AtomicBoolean cancel=new AtomicBoolean();
     private StorageScanner.Result result;
     private StorageScanner.Node current;
@@ -34,7 +39,7 @@ public final class MainActivity extends Activity {
     private String query="";
     public static String bytes(long n){if(n<1024)return n+" B";String[] u={"KB","MB","GB","TB"};double v=n;int i=-1;do{v/=1024;i++;}while(v>=1024&&i<3);return String.format(Locale.US,v>=100?"%.0f %s":"%.1f %s",v,u[i]);}
     private int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);build();updateCapacity();}
+    @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);snapshotFile=new File(getFilesDir(),"scan-v1.bin");navigation=getSharedPreferences("navigation",MODE_PRIVATE);build();updateCapacity();restoreSnapshot();}
     private GradientDrawable shape(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(18));return d;}
     private TextView label(String s,int size,int color){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);return t;}
     private Button button(String s,Runnable action){Button b=new Button(this);b.setText(s);b.setTextColor(TEXT);b.setAllCaps(false);b.setTextSize(13);b.setOnClickListener(v->action.run());return b;}
@@ -56,8 +61,8 @@ public final class MainActivity extends Activity {
     private boolean access(){return Build.VERSION.SDK_INT>=30?Environment.isExternalStorageManager():checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)==android.content.pm.PackageManager.PERMISSION_GRANTED;}
     private void requestAccess(){if(Build.VERSION.SDK_INT>=30){try{startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,Uri.parse("package:"+getPackageName())));}catch(ActivityNotFoundException e){startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));}}else requestPermissions(new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE},10);}
     private void updateCapacity(){try{android.os.StatFs s=new android.os.StatFs(Environment.getExternalStorageDirectory().getAbsolutePath());long total=s.getTotalBytes(),free=s.getAvailableBytes();capacity.setText(bytes(total-free)+" 已用 / "+bytes(total)+" 总容量");summary.setText(bytes(free)+" 可用  ·  设备存储卷统计（含系统与应用）");}catch(Exception e){capacity.setText("无法读取设备容量");}}
-    private void startScan(){scanning=true;scanProgress.setVisibility(View.VISIBLE);scanButton.setText("取消扫描");status.setText("正在扫描…可随时取消");cancel=new AtomicBoolean();AtomicBoolean token=cancel;
-        worker.submit(()->{try{StorageScanner.Result r=new StorageScanner().scan(Environment.getExternalStorageDirectory(),token,(count,p)->runOnUiThread(()->{if(alive)status.setText("已发现 "+count+" 个文件…");}));runOnUiThread(()->{if(!alive)return;scanning=false;scanProgress.setVisibility(View.GONE);scanButton.setText("重新扫描");if(r.root==null){status.setText("扫描失败：存储根目录不可访问");return;}result=r;current=r.root;history.clear();largest=false;updateCapacity();status.setText(r.files+" 个文件 · "+r.folders+" 个目录 · "+r.skipped+" 项未读取/已跳过");render();});}catch(Exception e){runOnUiThread(()->{if(!alive)return;scanning=false;scanProgress.setVisibility(View.GONE);scanButton.setText("重新扫描");status.setText(e instanceof CancellationException?"扫描已取消，保留上次结果":"扫描失败："+e.getClass().getSimpleName());});}});
+    private void startScan(){generation++;scanning=true;scanProgress.setVisibility(View.VISIBLE);scanButton.setText("取消扫描");status.setText("正在扫描…可随时取消");cancel=new AtomicBoolean();AtomicBoolean token=cancel;
+        worker.submit(()->{try{StorageScanner.Result r=new StorageScanner().scan(Environment.getExternalStorageDirectory(),token,(count,p)->runOnUiThread(()->{if(alive&&scanning)status.setText("已发现 "+count+" 个文件…");}));long completed=System.currentTimeMillis();String saveError="";if(r.root!=null){try{ScanSnapshot.write(snapshotFile,r,completed);}catch(java.io.IOException e){saveError=" · 快照保存失败";}}final String warning=saveError;runOnUiThread(()->{if(!alive)return;scanning=false;scanProgress.setVisibility(View.GONE);scanButton.setText("重新扫描");if(r.root==null){status.setText("扫描失败：存储根目录不可访问");return;}result=r;scanTime=completed;historical=false;current=r.root;history.clear();largest=false;updateCapacity();showResultStatus(warning);render();});}catch(Exception e){runOnUiThread(()->{if(!alive)return;scanning=false;scanProgress.setVisibility(View.GONE);scanButton.setText("重新扫描");status.setText(e instanceof CancellationException?"扫描已取消，保留上次结果":"扫描失败："+e.getClass().getSimpleName());});}});
     }
     private void select(StorageScanner.Node n){if(n.directory){if(current!=null)history.push(current);current=n;largest=false;render();}else showFile(n);}
     private void showAncestors(){
@@ -69,6 +74,7 @@ public final class MainActivity extends Activity {
     private void goUp(){if(largest){largest=false;render();}else if(!history.isEmpty()){current=history.pop();render();}}
     @Override public void onBackPressed(){if(largest||!history.isEmpty())goUp();else super.onBackPressed();}
     private void render(){if(rows==null)return;boolean transition=hasRendered&&(renderedDirectory!=current||renderedLargest!=largest);boolean directoryChanged=!hasRendered||renderedDirectory!=current;renderedDirectory=current;renderedLargest=largest;hasRendered=true;rows.animate().cancel();rows.setAlpha(1f);rows.removeAllViews();if(directoryChanged)chart.setRoot(current);if(transition){rows.setAlpha(0f);rows.animate().alpha(1f).setDuration(180).start();}upButton.setEnabled(largest||!history.isEmpty());path.setEnabled(current!=null);path.setText(largest?"全盘大文件 · 按逻辑大小排序  ▾":current==null?"尚未扫描":current.path+"  ▾");
+        if(result!=null&&current!=null)saveNavigation();
         if(result==null||current==null){rows.addView(label("授予访问权限后，点击扫描查看真实空间分布。",14,MUTED));return;}
         java.util.List<StorageScanner.Node> list=largest?result.largest:current.children;int index=0,shown=0;
         for(StorageScanner.Node n:list){int color=SunburstView.COLORS[index++%SunburstView.COLORS.length];if(!n.name.toLowerCase(Locale.ROOT).contains(query))continue;if(shown++>=250)continue;
@@ -81,5 +87,37 @@ public final class MainActivity extends Activity {
         if(shown==0)rows.addView(label("没有匹配的文件或目录",14,MUTED));if(shown>250)rows.addView(label("显示前 250 项；使用名称筛选缩小范围",12,MUTED));
     }
     private void showFile(StorageScanner.Node n){new AlertDialog.Builder(this).setTitle(n.name).setMessage(bytes(n.size)+"\n\n"+n.path+"\n\n为避免误删，此版本仅分析空间，不提供删除操作。").setPositiveButton("复制路径",(d,w)->{android.content.ClipboardManager cm=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("文件路径",n.path));Toast.makeText(this,"路径已复制",Toast.LENGTH_SHORT).show();}).setNegativeButton("关闭",null).show();}
-    @Override protected void onDestroy(){alive=false;cancel.set(true);worker.shutdownNow();super.onDestroy();}
+    private void showResultStatus(String warning){
+        String time=new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.getDefault()).format(new Date(scanTime));
+        status.setText((historical?"历史快照（非实时） · ":"扫描结果（非实时） · ")+time+"\n"+result.files+" 个文件 · "+result.folders+" 个目录 · "+result.skipped+" 项未读取/已跳过"+warning);
+    }
+    private void saveNavigation(){navigation.edit().putString("path",current.path).putBoolean("largest",largest).apply();}
+    private void restoreSnapshot(){
+        final int request=generation;
+        final String savedPath=navigation.getString("path","");
+        final boolean savedLargest=navigation.getBoolean("largest",false);
+        worker.submit(()->{
+            ScanSnapshot.Saved saved=ScanSnapshot.read(snapshotFile);
+            runOnUiThread(()->{
+                if(!alive||generation!=request||scanning||saved==null)return;
+                result=saved.result;scanTime=saved.time;historical=true;
+                restoreDirectory(savedPath);largest=savedLargest;
+                scanButton.setText("重新扫描");showResultStatus("");render();
+            });
+        });
+    }
+    private void restoreDirectory(String wanted){
+        history.clear();current=result.root;
+        // Follow only ancestors in the cached tree; no filesystem reads or permission needed.
+        while(!current.path.equals(wanted)){
+            StorageScanner.Node next=null;
+            for(StorageScanner.Node n:current.children)if(n.directory&&(wanted.equals(n.path)||wanted.startsWith(n.path+"/"))){next=n;break;}
+            if(next==null){history.clear();current=result.root;return;}
+            history.push(current);current=next;
+        }
+    }
+    @Override protected void onStop(){if(result!=null&&current!=null)saveNavigation();super.onStop();}
+    // Ordinary backgrounding does not cancel. A destroyed Activity no longer receives UI updates,
+    // but its worker may finish and atomically save a complete scan while the process survives.
+    @Override protected void onDestroy(){alive=false;super.onDestroy();}
 }

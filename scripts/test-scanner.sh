@@ -16,5 +16,9 @@ trap 'exit 143' TERM
 "$JAVAC" -encoding UTF-8 -d "$BUILD" \
     "$ROOT"/tests/java/android/system/*.java \
     "$ROOT/app/src/main/java/dev/orbitdisk/app/StorageScanner.java" \
+    "$ROOT/app/src/main/java/dev/orbitdisk/app/ScanSnapshot.java" \
+    "$ROOT/tests/java/dev/orbitdisk/app/ScanSnapshotTest.java" \
     "$ROOT/tests/java/dev/orbitdisk/app/StorageScannerTest.java"
 "$JAVA" -ea -cp "$BUILD" dev.orbitdisk.app.StorageScannerTest
+
+"$JAVA" -ea -cp "$BUILD" dev.orbitdisk.app.ScanSnapshotTest
