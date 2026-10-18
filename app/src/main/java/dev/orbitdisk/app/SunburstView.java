@@ -36,7 +36,7 @@ public final class SunburstView extends View {
         c.save();float scale=.93f+.07f*reveal;c.scale(scale,scale,cx,cy);
         if(root!=null&&root.size>0)drawChildren(c,root,-90,360*reveal,0,-1);
         c.restore();
-        paint.setStyle(Paint.Style.FILL);paint.setColor(0xfff4f5fb);paint.setTypeface(Typeface.create("sans-serif-medium",0));paint.setTextAlign(Paint.Align.CENTER);paint.setTextSize(30*getResources().getDisplayMetrics().scaledDensity);
+        paint.setStyle(Paint.Style.FILL);paint.setColor(0xfff4f5fb);paint.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));paint.setTextAlign(Paint.Align.CENTER);paint.setTextSize(30*getResources().getDisplayMetrics().scaledDensity);
         StorageScanner.Node shown=preview!=null?preview:root;
         c.drawText(shown==null?"Orbit":MainActivity.bytes(shown.size),cx,cy+2,paint);
         paint.setTextSize(12*getResources().getDisplayMetrics().scaledDensity);paint.setColor(0xff9ba4ba);

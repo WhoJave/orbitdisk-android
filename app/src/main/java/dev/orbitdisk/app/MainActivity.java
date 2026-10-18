@@ -44,8 +44,9 @@ public final class MainActivity extends Activity {
     private TextView label(String s,int size,int color){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);return t;}
     private Button button(String s,Runnable action){Button b=new Button(this);b.setText(s);b.setTextColor(TEXT);b.setAllCaps(false);b.setTextSize(13);b.setOnClickListener(v->action.run());return b;}
     private void build(){
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);body=new LinearLayout(this);body.setOrientation(1);body.setPadding(dp(22),dp(16),dp(22),dp(32));scroll.addView(body);setContentView(scroll);
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BG);body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(22),dp(16),dp(22),dp(32));scroll.addView(body);setContentView(scroll);
         TextView brand=label("◌  OrbitDisk",28,TEXT);brand.setTypeface(null,Typeface.BOLD);body.addView(brand);TextView subtitle=label("存储洞察  /  每一寸空间，都有迹可循",12,MUTED);subtitle.setLetterSpacing(.08f);subtitle.setPadding(dp(2),dp(7),0,dp(3));body.addView(subtitle);
+        body.addView(button("应用占用 →",()->startActivity(new Intent(this,AppStorageActivity.class))));
         capacity=label("",14,GREEN);capacity.setPadding(0,dp(20),0,dp(8));body.addView(capacity);
         summary=label("设备占用包含系统、应用及其他用户数据",12,MUTED);body.addView(summary);
         chart=new SunburstView(this);body.addView(chart,new LinearLayout.LayoutParams(-1,dp(300)));chart.listener=this::select;chart.onCenterTap=this::goUp;
@@ -56,7 +57,7 @@ public final class MainActivity extends Activity {
         LinearLayout nav=new LinearLayout(this);upButton=button("↑ 上层",this::goUp);nav.addView(upButton,new LinearLayout.LayoutParams(0,dp(48),1));nav.addView(button("目录",()->{largest=false;render();}),new LinearLayout.LayoutParams(0,dp(48),1));nav.addView(button("大文件 TOP100",()->{largest=true;render();}),new LinearLayout.LayoutParams(0,dp(48),1));body.addView(nav);
         path=label("尚未扫描",12,GREEN);path.setPadding(0,dp(12),0,dp(12));path.setOnClickListener(v->showAncestors());path.setContentDescription("当前路径，点按选择上级目录");body.addView(path);
         EditText search=new EditText(this);search.setSingleLine(true);search.setTextColor(TEXT);search.setTextSize(14);search.setHintTextColor(MUTED);search.setHint("筛选当前列表中的名称");body.addView(search);search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int before,int count){query=s.toString().toLowerCase(Locale.ROOT);render();}public void afterTextChanged(android.text.Editable e){}});
-        rows=new LinearLayout(this);rows.setOrientation(1);body.addView(rows);render();
+        rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);body.addView(rows);render();
     }
     private boolean access(){return Build.VERSION.SDK_INT>=30?Environment.isExternalStorageManager():checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)==android.content.pm.PackageManager.PERMISSION_GRANTED;}
     private void requestAccess(){if(Build.VERSION.SDK_INT>=30){try{startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,Uri.parse("package:"+getPackageName())));}catch(ActivityNotFoundException e){startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));}}else requestPermissions(new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE},10);}
@@ -78,7 +79,7 @@ public final class MainActivity extends Activity {
         if(result==null||current==null){rows.addView(label("授予访问权限后，点击扫描查看真实空间分布。",14,MUTED));return;}
         java.util.List<StorageScanner.Node> list=largest?result.largest:current.children;int index=0,shown=0;
         for(StorageScanner.Node n:list){int color=SunburstView.COLORS[index++%SunburstView.COLORS.length];if(!n.name.toLowerCase(Locale.ROOT).contains(query))continue;if(shown++>=250)continue;
-            LinearLayout row=new LinearLayout(this);row.setOrientation(1);row.setPadding(dp(14),dp(12),dp(14),dp(12));row.setBackground(shape(CARD));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(8);rows.addView(row,rp);
+            LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(dp(14),dp(12),dp(14),dp(12));row.setBackground(shape(CARD));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.bottomMargin=dp(8);rows.addView(row,rp);
             TextView title=label((n.directory?"▸  ":"·  ")+n.name,15,TEXT);title.setMaxLines(2);row.addView(title);double percent=current.size==0?0:100.0*n.size/current.size;
             row.addView(label(bytes(n.size)+(largest?"  ·  "+n.path:String.format(Locale.US,"  ·  %.1f%%",percent)),12,MUTED));
             if(!largest){View bar=new View(this);bar.setBackground(shape(color));LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(dp((float)Math.max(2,Math.min(240,percent*2.4))),dp(3));bp.topMargin=dp(9);row.addView(bar,bp);}
